@@ -12,7 +12,7 @@ public class TilesRepository {
         return cachedTiles.contains(key);
     }
 
-    public static void addCachedTile(TileKey key) {
+    public static synchronized void addCachedTile(TileKey key) {
         cachedTiles.add(key);
     }
 

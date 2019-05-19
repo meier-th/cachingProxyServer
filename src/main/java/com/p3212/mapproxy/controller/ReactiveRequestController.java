@@ -10,6 +10,9 @@ import org.springframework.stereotype.Controller;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.context.ServletContextAware;
+import reactor.core.publisher.Flux;
+import reactor.core.scheduler.Scheduler;
+import reactor.core.scheduler.Schedulers;
 
 import javax.imageio.ImageIO;
 import javax.servlet.ServletContext;
@@ -37,6 +40,7 @@ public class ReactiveRequestController implements ServletContextAware {
         key.setX(x);
         key.setY(y);
         key.setZ(z);
+        //Check if image was already loaded and cached
         if (TilesRepository.isCached(key)) {
             try {
                 InputStream in = servletContext.getResourceAsStream("./"+x+"_"+y+"_"+z+".png");
@@ -44,17 +48,32 @@ public class ReactiveRequestController implements ServletContextAware {
             } catch (IOException error) {
                 return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
             }
-        } else {
+        }
+        //If it's a first request for the image
+        else {
             try {
+                //Requesting picture from openstreetmap
                 BufferedImage image = ImageIO.read(new URL("https://a.tile.openstreetmap.org/"+x+"/"+y+"/"+z+".png"));
-                File picFile = new File("./"+x+"_"+y+"_"+z+".png");
-                ImageIO.write(image, "png", picFile);
-                TilesRepository.addCachedTile(key);
+
+                Flux.just(image)
+                        .subscribeOn(Schedulers.newSingle("cachingThread"))
+                        .subscribe((data) -> {
+                            try {
+                                //caching tile on disk
+                                File picFile = new File("./" + x + "_" + y + "_" + z + ".png");
+                                ImageIO.write(image, "png", picFile);
+                                //Add info about caching
+                                TilesRepository.addCachedTile(key);
+                                System.out.println("cachingThread finishes");
+                            } catch (IOException error) {}
+                        });
+
+                //Sending tile to user concurrently with caching
                 ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
                 ImageIO.write(image, "png", outputStream);
                 return ResponseEntity.ok(outputStream.toByteArray());
             } catch (IOException e) {
-                return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
+                return ResponseEntity.notFound().build();
             }
         }
     }
