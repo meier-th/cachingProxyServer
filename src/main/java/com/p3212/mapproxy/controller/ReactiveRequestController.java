@@ -3,6 +3,8 @@ package com.p3212.mapproxy.controller;
 import com.p3212.mapproxy.object.TileKey;
 import com.p3212.mapproxy.repository.TilesRepository;
 import org.apache.commons.io.IOUtils;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
@@ -97,7 +99,10 @@ public class ReactiveRequestController implements ServletContextAware {
 
                                     //Remove future object since pile was already cached on disk
                                     TilesRepository.removeLoaded(key);
-                                } catch (IOException error) {}
+                                } catch (IOException error) {
+                                    Logger logger = LoggerFactory.getLogger(ReactiveRequestController.class);
+                                    logger.error(error.getMessage());
+                                }
                             });
 
                     //Sending tile to user concurrently with caching
