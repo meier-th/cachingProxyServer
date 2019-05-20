@@ -7,6 +7,7 @@ import lombok.Setter;
 @Setter
 @Getter
 @NoArgsConstructor
+// Represents an 'ID' for a tile. Stores numbers from URL ( .../x/y/z.png)
 public class TileKey {
 
     private int x;

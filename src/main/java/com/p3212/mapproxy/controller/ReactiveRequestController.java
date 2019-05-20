@@ -34,14 +34,14 @@ public class ReactiveRequestController implements ServletContextAware {
     private ServletContext servletContext;
 
     @Override
-    public void setServletContext (ServletContext context) {
+    public void setServletContext(ServletContext context) {
         this.servletContext = context;
     }
 
     @GetMapping(value = "/{first}/{second}/{third}.png", produces = MediaType.IMAGE_PNG_VALUE)
     public ResponseEntity<byte[]> getMapTile(@PathVariable(value = "first") int x,
-               @PathVariable(value = "second") int y, @PathVariable(value = "third") int z) {
-        //key object is an 'id' of a pile
+                                             @PathVariable(value = "second") int y, @PathVariable(value = "third") int z) {
+        //key object is an 'id' of a tile
         TileKey key = new TileKey();
         key.setX(x);
         key.setY(y);
@@ -49,72 +49,97 @@ public class ReactiveRequestController implements ServletContextAware {
 
         //Check if image was already loaded and cached
         if (TilesRepository.isCached(key)) {
-            try {
-                //Getting pile from disk
-                InputStream in = servletContext.getResourceAsStream("./"+x+"_"+y+"_"+z+".png");
-                return ResponseEntity.ok(IOUtils.toByteArray(in));
-            } catch (IOException error) {
-                return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
-            }
+            return getCachedTile(key);
         }
-        //If pile wasn't cached yet
+
+        //If tile wasn't cached yet
         else {
-            try {
-                //If another thread has already requested for the same pile
-                //Then a Future object for this pile was created in TilesRepository
-                //This thread waits for the pile to be loaded
-                if (TilesRepository.isPileBeingLoaded(key)) {
-                    BufferedImage image;
-                    image = TilesRepository.getFuture(key).get();
-                    ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
-                    ImageIO.write(image, "png", outputStream);
-                    return ResponseEntity.ok(outputStream.toByteArray());
 
-                } else {
-                    //If this is the first request for a specific pile
-                    //Requesting pile from openStreetMap
-                    //Using Future
-                    ExecutorService executor = Executors.newSingleThreadExecutor();
-                    Future<BufferedImage> imageFuture = executor.submit(() ->
-                            ImageIO.read(new URL("https://a.tile.openstreetmap.org/" + x + "/" + y + "/" + z + ".png")));
+            // If another thread has already requested for the same tile
+            // Then a Future object for this tile was created in TilesRepository
+            // This thread waits for the tile to be loaded
+            if (TilesRepository.isTileBeingLoaded(key))
+                return getTileFromFuture(key);
 
-                    //Adding a Future object to repository
-                    //So that if a new request for the same pile is received
-                    //No additional request to openStreetMap will be sent
-                    TilesRepository.addLoadingPile(key, imageFuture);
-                    BufferedImage image = imageFuture.get();
+                // If this is the first time this tile was requested
+            else
+                return getTileFromOpenStreets(key);
+        }
+    }
 
-                    //Creating a Flux so that pile will be sent to user
-                    //And cached on disk simultaneously
-                    Flux.just(image)
-                            .subscribeOn(Schedulers.newSingle("cachingThread"))
-                            .subscribe((data) -> {
-                                try {
-                                    //caching tile on disk
-                                    File picFile = new File("./" + x + "_" + y + "_" + z + ".png");
-                                    ImageIO.write(image, "png", picFile);
+    // Loads a cached tile from disk
+    private ResponseEntity<byte[]> getCachedTile(TileKey key) {
+        try {
+            //Getting tile from disk
+            InputStream in = servletContext.getResourceAsStream("./" + key.getX() + "_" + key.getY() + "_" + key.getZ() + ".png");
+            return ResponseEntity.ok(IOUtils.toByteArray(in));
+        } catch (IOException error) {
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
+        }
+    }
 
-                                    //Add info about caching
-                                    TilesRepository.addCachedTile(key);
+    // Loads a tile which is currently being loaded from openStreets by another thread
+    private ResponseEntity<byte[]> getTileFromFuture(TileKey key) {
+        try {
+            BufferedImage image;
+            image = TilesRepository.getFuture(key).get();
+            ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
+            ImageIO.write(image, "png", outputStream);
+            return ResponseEntity.ok(outputStream.toByteArray());
+        } catch (IOException | InterruptedException | ExecutionException error) {
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
+        }
+    }
 
-                                    //Remove future object since pile was already cached on disk
-                                    TilesRepository.removeLoaded(key);
-                                } catch (IOException error) {
-                                    Logger logger = LoggerFactory.getLogger(ReactiveRequestController.class);
-                                    logger.error(error.getMessage());
-                                }
-                            });
+    // Saves a loaded tile on disk and removes a Future object
+    private void saveTileToCache(TileKey key, BufferedImage image) {
+        try {
+            //caching tile on disk
+            File picFile = new File("./" + key.getX() + "_" + key.getY() + "_" + key.getZ() + ".png");
+            ImageIO.write(image, "png", picFile);
 
-                    //Sending tile to user concurrently with caching
-                    ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
-                    ImageIO.write(image, "png", outputStream);
-                    return ResponseEntity.ok(outputStream.toByteArray());
-                }
-            } catch (IOException e) {
-                return ResponseEntity.notFound().build();
-            } catch (InterruptedException | ExecutionException error) {
-                return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
-            }
+            //Add info about caching
+            TilesRepository.addCachedTile(key);
+
+            //Remove future object since tile was already cached on disk
+            TilesRepository.removeLoaded(key);
+        } catch (IOException error) {
+            Logger logger = LoggerFactory.getLogger(ReactiveRequestController.class);
+            logger.error(error.getMessage());
+        }
+    }
+
+    // Sends a request for tile to openStreetsMap
+    private ResponseEntity<byte[]> getTileFromOpenStreets(TileKey key) {
+        //If this is the first request for a specific tile
+        //Requesting tile from openStreetMap
+        //Using Future
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+        Future<BufferedImage> imageFuture = executor.submit(() ->
+                ImageIO.read(new URL("https://a.tile.openstreetmap.org/" + key.getX() + "/" + key.getY() + "/" + key.getZ() + ".png")));
+
+        try {
+            //Adding a Future object to repository
+            //So that if a new request for the same tile is received
+            //No additional request to openStreetMap will be sent
+            TilesRepository.addLoadingTile(key, imageFuture);
+            BufferedImage image = imageFuture.get();
+
+            //Creating a Flux so that tile will be sent to user
+            //And cached on disk simultaneously
+            Flux.just(image)
+                    .subscribeOn(Schedulers.newSingle("cachingThread"))
+                    .subscribe((data) -> saveTileToCache(key, data));
+
+            //Sending tile to user concurrently with caching
+            ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
+            ImageIO.write(image, "png", outputStream);
+            return ResponseEntity.ok(outputStream.toByteArray());
+
+        } catch (IOException e) {
+            return ResponseEntity.notFound().build();
+        } catch (InterruptedException | ExecutionException error) {
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
         }
     }
 
