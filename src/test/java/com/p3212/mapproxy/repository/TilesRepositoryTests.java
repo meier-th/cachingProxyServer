@@ -1,6 +1,7 @@
 package com.p3212.mapproxy.repository;
 
 import static org.junit.Assert.*;
+
 import com.p3212.mapproxy.object.TileKey;
 import org.junit.Test;
 

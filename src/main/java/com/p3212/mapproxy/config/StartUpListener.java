@@ -17,7 +17,7 @@ public class StartUpListener implements ApplicationListener<ContextRefreshedEven
     public void onApplicationEvent(ContextRefreshedEvent event) {
         String regex = "\\d_\\d_\\d\\.png";
         File currentDirectory = new File(".");
-        for (File file: currentDirectory.listFiles()) {
+        for (File file : currentDirectory.listFiles()) {
             if (Pattern.matches(regex, file.getName())) {
                 TileKey key = new TileKey();
                 int x = Integer.valueOf(file.getName().charAt(0));

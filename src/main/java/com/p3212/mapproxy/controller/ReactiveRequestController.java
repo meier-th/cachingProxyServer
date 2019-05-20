@@ -79,7 +79,7 @@ public class ReactiveRequestController implements ServletContextAware {
     }
 
     // Loads a tile which is currently being loaded from openStreets by another thread
-    private ResponseEntity<byte[]> getTileFromFuture(TileKey key) {
+    public ResponseEntity<byte[]> getTileFromFuture(TileKey key) {
         try {
             BufferedImage image;
             image = TilesRepository.getFuture(key).get();
@@ -110,7 +110,7 @@ public class ReactiveRequestController implements ServletContextAware {
     }
 
     // Sends a request for tile to openStreetsMap
-    private ResponseEntity<byte[]> getTileFromOpenStreets(TileKey key) {
+    public ResponseEntity<byte[]> getTileFromOpenStreets(TileKey key) {
         //If this is the first request for a specific tile
         //Requesting tile from openStreetMap
         //Using Future
